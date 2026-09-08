@@ -18,7 +18,7 @@ for existing compatibility consumers; new integrations should use A2A.
 ## Development
 
 ```bash
-npm ci --ignore-scripts
+npm install --ignore-scripts
 npm run typecheck
 npm test
 npm run build

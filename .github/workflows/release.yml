@@ -100,7 +100,7 @@ jobs:
             *) echo "Unknown package: $PACKAGE" >&2; exit 1 ;;
           esac
       - name: Install dependencies without lifecycle scripts
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
       - name: Build the package family explicitly
         run: npm run build
       - name: Typecheck and test the selected package

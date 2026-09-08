@@ -23,7 +23,7 @@ jobs:
           node-version: '22.14.0'
       - name: Install the release-compatible npm client
         run: npm install --global npm@11.5.1
-      - run: npm ci --ignore-scripts
+      - run: npm install --ignore-scripts
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
