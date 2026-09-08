@@ -152,7 +152,11 @@ describe('@aihu/agent registry — RC-2 ActionSchema/InputSchema', () => {
     registerAgentMetadata(meta)
     const result = getAgentMetadata('x-test-8')
     expect(result?.actions?.quote?.returns.plan?.type).toBe('enum')
-    expect(result?.actions?.quote?.returns.plan?.values).toEqual(['basic', 'pro', 'enterprise'])
+    expect(result?.actions?.quote?.returns.plan?.values).toEqual([
+      'basic',
+      'pro',
+      'enterprise',
+    ])
   })
 
   // 9. InputSchema without default is valid
@@ -168,7 +172,8 @@ describe('@aihu/agent registry — RC-2 ActionSchema/InputSchema', () => {
     }
     registerAgentMetadata(meta)
     const result = getAgentMetadata('x-test-9')
-    const field: InputSchema | undefined = result?.actions?.describe?.returns.name
+    const field: InputSchema | undefined =
+      result?.actions?.describe?.returns.name
     expect(field).toBeDefined()
     expect(field?.default).toBeUndefined()
   })

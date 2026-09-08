@@ -39,8 +39,8 @@ if (meta) {
 import { getAllAgentMetadata } from '@aihu/agent'
 
 const all = getAllAgentMetadata()
-for (const [tag, meta] of Object.entries(all)) {
-  console.log(`${tag}: ${meta.actions.length} actions, ${meta.state.length} state slots`)
+for (const meta of all) {
+  console.log(`${meta.tag}: ${Object.keys(meta.actions ?? {}).length} actions, ${Object.keys(meta.state ?? {}).length} state slots`)
 }
 ```
 
@@ -137,7 +137,6 @@ The package is ≤ 200 B, but including it unnecessarily in a non-agent componen
 
 ## Canonical example files
 
-- `packages/agent/src/index.ts` — public API (getAgentMetadata, getAllAgentMetadata, registerAgentMetadata)
-- `packages/agent/src/registry.ts` — AgentMetadata, ActionSchema, InputSchema types
-- `examples/todo-mvc/todo-mvc.aihu` — full agent surface: exposed state + actions with describe
-- `examples/hacker-news/src/pages/index.aihu` — minimal @agent usage with $scope
+- `src/index.ts` — public API (getAgentMetadata, getAllAgentMetadata, registerAgentMetadata)
+- `src/registry.ts` — AgentMetadata, ActionSchema, InputSchema types
+- The compiler emits registration calls; protocol adapters consume this registry.

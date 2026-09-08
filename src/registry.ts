@@ -83,7 +83,14 @@ export interface ExtractScopePolicy {
  */
 export interface ExtractPolicy {
   /** `read` (crawl-visibility) axis — GX spec §2.1. */
-  read?: 'all' | 'agents' | 'search' | 'none' | 'verified' | 'human' | ExtractScopePolicy
+  read?:
+    | 'all'
+    | 'agents'
+    | 'search'
+    | 'none'
+    | 'verified'
+    | 'human'
+    | ExtractScopePolicy
   /** `call` (agent-callability) axis — GX spec §2.1. */
   call?: 'none' | 'anonymous' | 'verified' | ExtractScopePolicy
 }

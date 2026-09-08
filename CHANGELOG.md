@@ -1,5 +1,12 @@
 # @aihu/agent
 
+## 0.2.1
+
+### Patch Changes
+
+- Moved the package into the standalone `aihu-project/aihu-agent` repository.
+- Kept the public API and runtime dependency surface unchanged.
+
 ## 0.2.0
 
 ### Minor Changes

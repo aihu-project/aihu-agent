@@ -13,4 +13,8 @@ export type {
   ExtractScopePolicy,
   InputSchema,
 } from './registry.ts'
-export { getAgentMetadata, getAllAgentMetadata, registerAgentMetadata } from './registry.ts'
+export {
+  getAgentMetadata,
+  getAllAgentMetadata,
+  registerAgentMetadata,
+} from './registry.ts'
