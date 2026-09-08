@@ -10,10 +10,17 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: 1.3.8 }
       - run: bun install --frozen-lockfile
@@ -26,11 +33,35 @@ jobs:
       - run: bun run test
       - run: bun run build
       - run: bun run pack:check
-      - name: Configure npm authentication
+      - name: Verify npm authentication
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm config set //registry.npmjs.org/:_authToken "$NODE_AUTH_TOKEN"
+        run: |
+          test -n "$NODE_AUTH_TOKEN"
+          npm whoami --registry=https://registry.npmjs.org
+      - name: Check whether the package version is already published
+        id: npm-version
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          package_name="$(node -p "require('./package.json').name")"
+          package_version="$(node -p "require('./package.json').version")"
+          set +e
+          npm_output="$(npm view "$package_name@$package_version" version --registry=https://registry.npmjs.org 2>&1)"
+          npm_status=$?
+          set -e
+          if [ "$npm_status" -eq 0 ]; then
+            printf '%s\n' "$npm_output"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$npm_output" | grep -Eq 'E404|404 Not Found|is not in this registry'; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' "$npm_output" >&2
+            exit "$npm_status"
+          fi
       - name: Publish package
+        if: steps.npm-version.outputs.published == 'false'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
