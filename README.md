@@ -30,7 +30,11 @@ NPM_CONFIG_USERCONFIG=/dev/null npm run release:contract
 The release contract validates the public semver dependency graph, exact
 package contents, lifecycle-disabled installation, and the trusted-publishing
 prerequisites. Publishing is driven by the package-specific tags documented in
-the release workflow and is intentionally ordered by the dependency graph.
+the release workflow and is intentionally ordered by the dependency graph. The
+publish job fails closed unless the tag names the package's exact version, the
+tag commit is the current `main` tip, and GitHub associates that commit with a
+merged pull request into `main`; this is an automated merge association gate,
+not a claim that the workflow performs a separate human approval check.
 
 ## License
 

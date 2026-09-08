@@ -24,3 +24,11 @@ enforces this order by requiring every internal prerequisite to exist in npm
 before its dependent package can publish. Each package has a public semver
 dependency range so the published manifests remain installable outside this
 workspace.
+
+Release governance is automated and fail-closed: the package-specific tag must
+match the manifest version, its commit must equal the default branch tip, and
+the GitHub API must associate that exact commit with a merged pull request into
+`main`. The workflow has read access to pull requests for this check. This
+association gate is evidence of a reviewed merge path; it does not claim that
+the workflow itself performs a separate human approval check, and direct tag
+pushes without the required merged association are rejected.
