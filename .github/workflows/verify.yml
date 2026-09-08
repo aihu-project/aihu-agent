@@ -24,7 +24,7 @@ jobs:
       - name: Install the release-compatible npm client
         run: npm install --global npm@11.19.0
       - name: Install dependencies without lifecycle scripts
-        run: npm ci --ignore-scripts
+        run: npm ci --ignore-scripts --force
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
