@@ -1,42 +1,18 @@
 {
-  "name": "@aihu/agent",
-  "version": "0.2.1",
-  "license": "MIT",
-  "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
-  "sideEffects": false,
-  "scripts": {
-    "build": "rolldown -c",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "lint": "biome ci .",
-    "pack:check": "bun pm pack --dry-run",
-    "prepublishOnly": "bun run build"
-  },
-  "description": "Agent primitives — the foundation of aihu agent-readiness.",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/aihu-project/aihu-agent.git"
-  },
-  "homepage": "https://github.com/aihu-project/aihu-agent#readme",
-  "bugs": "https://github.com/aihu-project/aihu-agent/issues",
-  "publishConfig": {
-    "access": "public"
-  },
+  "name": "aihu-agent-workspace",
+  "private": true,
+  "version": "0.0.0",
   "packageManager": "bun@1.3.8",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run --workspaces --if-present build",
+    "typecheck": "npm run --workspaces --if-present typecheck",
+    "test": "npm run build && npm run --workspaces --if-present test",
+    "release:contract": "node scripts/release-contract.mjs",
+    "verify": "npm run typecheck && npm run test && npm run build && npm run release:contract"
+  },
   "devDependencies": {
     "@biomejs/biome": "2.4.14",
     "rolldown": "^1.0.0-rc.17",

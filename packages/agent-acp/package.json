@@ -1,0 +1,42 @@
+{
+  "name": "@aihu/agent-acp",
+  "version": "0.2.1",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rolldown -c rolldown.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack:check": "bun run --cwd ../.. release:contract --package=packages/agent-acp",
+    "prepublishOnly": "bun run build"
+  },
+  "dependencies": {
+    "@aihu/agent-service": "^0.4.0"
+  },
+  "description": "DEPRECATED — use @aihu/agent-a2a. BeeAI ACP merged into A2A under the Linux Foundation (Aug 2025); this adapter's invented ACP shape has no spec to conform to.",
+  "deprecated": "The ACP protocol merged into A2A under the Linux Foundation (Aug 2025). Use @aihu/agent-a2a instead.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aihu-project/aihu-agent.git",
+    "directory": "packages/agent-acp"
+  },
+  "homepage": "https://github.com/aihu-project/aihu-agent/tree/main/packages/agent-acp#readme",
+  "bugs": "https://github.com/aihu-project/aihu-agent/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false
+}

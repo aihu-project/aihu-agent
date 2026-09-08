@@ -1,0 +1,41 @@
+{
+  "name": "@aihu/agent-a2a",
+  "version": "1.0.1",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rolldown -c rolldown.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack:check": "bun run --cwd ../.. release:contract --package=packages/agent-a2a",
+    "prepublishOnly": "bun run build"
+  },
+  "dependencies": {
+    "@aihu/agent-service": "^0.4.0"
+  },
+  "description": "A2A (Agent2Agent) protocol bindings (spec v1.0.1, JSON-RPC) for @aihu/agent-service.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aihu-project/aihu-agent.git",
+    "directory": "packages/agent-a2a"
+  },
+  "homepage": "https://github.com/aihu-project/aihu-agent/tree/main/packages/agent-a2a#readme",
+  "bugs": "https://github.com/aihu-project/aihu-agent/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false
+}

@@ -18,3 +18,8 @@ export {
   getAllAgentMetadata,
   registerAgentMetadata,
 } from './registry.ts'
+export {
+  protocolCompatibility,
+  type ProtocolCompatibility,
+  type ProtocolSupport,
+} from './protocol-matrix.ts'

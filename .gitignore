@@ -3,3 +3,5 @@ dist/
 .turbo/
 .DS_Store
 npm-debug.log*
+.codemap/*
+!.codemap/config.json

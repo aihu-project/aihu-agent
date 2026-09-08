@@ -1,0 +1,32 @@
+{
+  "only": ["ts", "js", "mjs", "json", "md", "txt", "yml", "yaml"],
+  "exclude": ["node_modules", "dist", "coverage", ".git", ".turbo"],
+  "depth": 4,
+  "routing": {
+    "subsystems": [
+      {
+        "name": "agent-metadata-registry",
+        "paths": ["packages/agent/src", "packages/agent-service/src", "packages/agent-a2a/src"],
+        "keywords": ["registerAgentMetadata", "getAgentMetadata", "AgentMetadata"],
+        "docs": ["packages/agent/README.md", "docs/protocol-compatibility.md"],
+        "note": "The registry is a runtime global seam consumed by adapters; Codemap can follow imports but cannot model module-evaluation ordering or shared registry identity.",
+        "drift": { "require_docs_for": ["packages/agent/src/registry.ts", "packages/agent-service/src/agent-service.ts"] }
+      },
+      {
+        "name": "capability-bridge-protocol",
+        "paths": ["packages/agent-server/src", "packages/agent-server/tests"],
+        "keywords": ["BRIDGE_PROTOCOL_VERSION", "BridgeHelloMessage", "BridgeInvokeMessage"],
+        "docs": ["packages/agent-server/README.md", "docs/protocol-compatibility.md"],
+        "note": "Bridge message names and the numeric handshake are a string-and-shape seam across server code and a future browser client; no import edge reaches an external client.",
+        "drift": { "require_docs_for": ["packages/agent-server/src/types.ts", "packages/agent-server/src/bridge-client.ts"] }
+      },
+      {
+        "name": "protocol-compatibility-matrix",
+        "paths": ["packages/agent/src/protocol-matrix.ts", "packages/agent/tests/protocol-matrix.test.ts", "docs/protocol-compatibility.md"],
+        "keywords": ["protocolCompatibility", "A2A v1.0.1", "DEPRECATED"],
+        "docs": ["docs/protocol-compatibility.md"],
+        "note": "The matrix is a deliberately data-only compatibility statement; keeping it near the registry lets tests catch protocol status drift without adding transport dependencies."
+      }
+    ]
+  }
+}
