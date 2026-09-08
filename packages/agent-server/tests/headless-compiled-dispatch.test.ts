@@ -38,17 +38,21 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createAgentServer } from '../src/agent-server.ts'
 
 const _dir = dirname(fileURLToPath(import.meta.url))
-// Locate the aihu-compile binary. cargo uses the workspace-root target dir;
-// fall back to release / the published bin location. Skip the suite (rather than
-// hard-fail) when none is present — the harness requires `cargo build` first.
+// Locate the real compiler in the same order a published consumer would: an
+// explicit test override, the installed npm bin, then a sibling source checkout.
 const REPO_ROOT = resolve(_dir, '../../..')
-const COMPILER =
-  [
-    resolve(REPO_ROOT, 'target/debug/aihu-compile'),
-    resolve(REPO_ROOT, 'target/release/aihu-compile'),
-    resolve(_dir, '../../compiler/bin/aihu-compile'),
-  ].find((p) => existsSync(p)) ?? ''
-const HAVE_COMPILER = COMPILER !== ''
+const COMPILER = [
+  process.env.AIHU_COMPILE_BIN,
+  resolve(REPO_ROOT, 'node_modules/.bin/aihu-compile'),
+  resolve(REPO_ROOT, 'node_modules/@aihu/compiler/bin/aihu-compile.mjs'),
+  resolve(REPO_ROOT, '../aihu-compiler/target/debug/aihu-compile'),
+  resolve(REPO_ROOT, '../aihu-compiler/target/release/aihu-compile'),
+].find((p) => p && existsSync(p)) ?? ''
+if (!COMPILER) {
+  throw new Error(
+    'compiler-backed agent-server tests require aihu-compile; install @aihu/compiler or set AIHU_COMPILE_BIN',
+  )
+}
 const TMP_DIR = resolve(_dir, '.tmp-headless')
 const TAG = 'agent-headless'
 
@@ -81,10 +85,11 @@ let element: HTMLElement
 let jsdom: JSDOM
 
 beforeAll(async () => {
-  if (!HAVE_COMPILER) return // suite is skipped via it.skipIf below
   // ── 1. Compile the real SFC to a server artifact. ────────────────────────
-  const out = spawnSync(COMPILER, ['--stdin', '--tag', TAG, '--target', 'server'], {
-    input: SFC,
+  mkdirSync(TMP_DIR, { recursive: true })
+  const sourcePath = resolve(TMP_DIR, `${TAG}.aihu`)
+  writeFileSync(sourcePath, SFC, 'utf8')
+  const out = spawnSync(COMPILER, [sourcePath, '--target', 'server'], {
     encoding: 'utf8',
   })
   if (out.status !== 0) {
@@ -99,7 +104,6 @@ beforeAll(async () => {
 
   // ── 2. Load it (registers the custom element via defineElement). ──────────
   // The bare `@aihu/*` imports resolve through vitest's workspace aliases.
-  mkdirSync(TMP_DIR, { recursive: true })
   const modPath = resolve(TMP_DIR, `${TAG}.ts`)
   writeFileSync(modPath, compiled, 'utf8')
 
@@ -111,6 +115,7 @@ beforeAll(async () => {
   g.document = jsdom.window.document
   g.customElements = jsdom.window.customElements
   g.HTMLElement = jsdom.window.HTMLElement
+  g.ShadowRoot = jsdom.window.ShadowRoot
   g.CSSStyleSheet = jsdom.window.CSSStyleSheet ?? class {}
   g.CustomEvent = jsdom.window.CustomEvent
 
@@ -149,7 +154,7 @@ describe('headless callTool drives a REAL compiled @agent component', () => {
     return createAgentServer({ target: { mount: scope } })
   }
 
-  it.skipIf(!HAVE_COMPILER)(
+  it(
     'an action mutates a real signal AND returns its live value',
     async () => {
       const server = makeServer()
@@ -175,7 +180,7 @@ describe('headless callTool drives a REAL compiled @agent component', () => {
     },
   )
 
-  it.skipIf(!HAVE_COMPILER)(
+  it(
     'a $prop write changes the signal; a $prop read returns the live value',
     async () => {
       const server = makeServer()

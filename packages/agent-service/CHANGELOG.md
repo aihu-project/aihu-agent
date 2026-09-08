@@ -1,5 +1,12 @@
 # @aihu/agent-service
 
+## 0.4.1
+
+### Patch Changes
+
+- Extracted the package into the standalone `aihu-project/aihu-agent` repository.
+- Kept the public API and live-dispatch compatibility surface unchanged.
+
 ## 0.4.0
 
 ### Minor Changes

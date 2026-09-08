@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
+import { validRange } from 'semver'
 
 const root = resolve(new URL('..', import.meta.url).pathname)
 const expectedDist = ['index.d.ts', 'index.d.ts.map', 'index.js', 'index.js.map']
@@ -43,8 +44,7 @@ function assertPublicRange(group, name, value) {
   const range = String(value)
   assert(range.length > 0, `${group}.${name} is empty`)
   assert(!/^(?:workspace:|file:|link:|git:|git\+|git@|https?:|npm:)/i.test(range), `${group}.${name} is not a public semver range`)
-  assert(/[0-9]/.test(range), `${group}.${name} has no semver version`)
-  assert(!/[\\/]/.test(range), `${group}.${name} contains a path`)
+  assert(validRange(range, { loose: false }) !== null, `${group}.${name} is not a valid semver range`)
 }
 
 function assertNoClassicAuth() {
@@ -110,6 +110,7 @@ const tarball = process.argv.find((arg) => arg.startsWith('--tarball='))?.slice(
 const packages = requested ? [requested] : packageDirs
 assertNoClassicAuth()
 assertNpmVersion()
+for (const packageDir of packages) assert(packageDirs.includes(packageDir), `package is outside the release allowlist: ${packageDir}`)
 for (const packageDir of packages) {
   const info = packageManifest(packageDir)
   if (tarball) assertTarball(info, tarball)

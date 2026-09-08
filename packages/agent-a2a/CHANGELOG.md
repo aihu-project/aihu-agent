@@ -1,5 +1,12 @@
 # @aihu/agent-a2a
 
+## 1.0.2
+
+### Patch Changes
+
+- Extracted the package into the standalone `aihu-project/aihu-agent` repository.
+- Updated the internal agent-service range to `^0.4.1`.
+
 ## 1.0.1
 
 ### Patch Changes

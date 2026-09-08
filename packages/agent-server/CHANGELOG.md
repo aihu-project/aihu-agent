@@ -1,5 +1,12 @@
 # @aihu/agent-server
 
+## 0.4.5
+
+### Patch Changes
+
+- Extracted the package into the standalone `aihu-project/aihu-agent` repository.
+- Updated the internal agent-service range to `^0.4.1`.
+
 ## 0.4.4
 
 ### Patch Changes
