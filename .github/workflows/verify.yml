@@ -24,11 +24,7 @@ jobs:
       - name: Install the release-compatible npm client
         run: npm install --global npm@11.19.0
       - name: Install dependencies without lifecycle scripts
-        run: npm install --ignore-scripts --package-lock=false --omit=optional --legacy-peer-deps
-      - name: Install the Linux compiler binary without optional resolution
-        run: npm install --ignore-scripts --package-lock=false --no-save --legacy-peer-deps @aihu/compiler-linux-x64-gnu@1.3.4
-      - name: Require the compiler binary for headless coverage
-        run: node_modules/.bin/aihu-compile --help >/dev/null
+        run: npm ci --ignore-scripts --legacy-peer-deps
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
