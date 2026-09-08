@@ -1,59 +1,40 @@
-# @aihu/agent
+# Aihu agent packages
 
-Agent metadata primitives for Aihu components.
+The Aihu agent family is published from this repository as small, independently
+installable packages:
 
-`@aihu/agent` provides the small, dependency-free registry used by compiled
-components and agent adapters. A compiler-generated module can register a
-component's static agent surface, while adapters can look up one component or
-take a snapshot of the complete registry.
+| Package | Role | Status |
+| --- | --- | --- |
+| [`@aihu/agent`](./packages/agent) | Dependency-free metadata registry | Supported |
+| [`@aihu/agent-service`](./packages/agent-service) | Authorization and live dispatch | Supported |
+| [`@aihu/agent-a2a`](./packages/agent-a2a) | A2A v1.0.1 adapter | Supported |
+| [`@aihu/agent-server`](./packages/agent-server) | MCP and capability-bridge server integration | Supported |
+| [`@aihu/agent-acp`](./packages/agent-acp) | Historical ACP compatibility adapter | Deprecated |
 
-## Install
-
-```bash
-npm install @aihu/agent
-# or
-bun add @aihu/agent
-```
-
-## API
-
-```ts
-import {
-  getAgentMetadata,
-  getAllAgentMetadata,
-  registerAgentMetadata,
-} from '@aihu/agent'
-
-registerAgentMetadata({
-  tag: 'quote-card',
-  describes: 'Displays a quote and its source.',
-  state: { quote: 'The current quote.' },
-})
-
-const card = getAgentMetadata('quote-card')
-const allComponents = getAllAgentMetadata()
-```
-
-The registry stores metadata by reference and uses last-registration-wins
-semantics. This supports module re-evaluation during development without
-introducing reactive or runtime dependencies.
-
-## Scope
-
-This package is the core metadata registry only. Protocol adapters and server
-dispatch live in separate packages such as `@aihu/agent-service`,
-`@aihu/agent-a2a`, `@aihu/agent-acp`, and `@aihu/agent-server`.
+See [the protocol compatibility matrix](./docs/protocol-compatibility.md) for
+the supported boundaries and internal publication order. ACP is retained only
+for existing compatibility consumers; new integrations should use A2A.
 
 ## Development
 
 ```bash
-bun install
-bun run lint
-bun run typecheck
-bun run test
-bun run build
-bun run pack:check
+npm install --ignore-scripts
+npm run typecheck
+npm test
+npm run build
+# release:contract requires npm >= 11.5.1
+npm install --global npm@11.5.1
+NPM_CONFIG_USERCONFIG=/dev/null npm run release:contract
 ```
+
+The release contract validates the public semver dependency graph, exact
+package contents, lifecycle-disabled installation, and the trusted-publishing
+prerequisites. Publishing is driven by the package-specific tags documented in
+the release workflow and is intentionally ordered by the dependency graph. The
+publish job fails closed unless the tag names the package's exact version, the
+tag commit is the current `main` tip, and GitHub associates that commit with a
+merged pull request into `main`; this is an automated merge association gate,
+not a claim that the workflow performs a separate human approval check.
 
 ## License
 

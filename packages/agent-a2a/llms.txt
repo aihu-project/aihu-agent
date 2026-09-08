@@ -1,0 +1,99 @@
+# @aihu/agent-a2a
+
+`@aihu/agent-a2a` is the Agent2Agent (A2A) protocol adapter for aihu. It implements the A2A Protocol Specification v1.0.1 (https://a2a-protocol.org/v1.0.1/specification), JSON-RPC 2.0 binding, so aihu components can be discovered and invoked by A2A orchestrators and peer agents.
+
+Routes: `GET {prefix}/.well-known/agent-card.json` (agent card) and `POST {prefix}/a2a` (JSON-RPC endpoint: `SendMessage`, `SendStreamingMessage` over SSE, `GetTask`, `ListTasks`, `CancelTask`, `SubscribeToTask`). Use it when your aihu app needs to participate in an A2A multi-agent network.
+
+## Right idioms
+
+### 1. Mount the A2A adapter on an existing `AgentService`
+
+```ts
+import { createAgentService } from '@aihu/agent-service'
+import { mountA2aAdapter } from '@aihu/agent-a2a'
+import { getAllAgentMetadata } from '@aihu/agent'
+
+const service = createAgentService({ manifests: getAllAgentMetadata(), getRegistry })
+const a2a = mountA2aAdapter(service, {
+  name: 'todo-app-agent',
+  url: 'https://my-app.example.com/a2a', // absolute HTTPS URL for the agent card
+})
+```
+
+### 2. Invoke a skill with a conformant A2A Message (data part)
+
+Skills are `"<tag>/<action>"`. A client sends:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "SendMessage",
+  "params": {
+    "message": {
+      "messageId": "m-1",
+      "role": "ROLE_USER",
+      "parts": [{ "data": { "skill": "todo-app/addTodo", "params": { "text": "Write tests" } } }]
+    }
+  }
+}
+```
+
+The response is `{ "jsonrpc": "2.0", "id": 1, "result": { "task": { … } } }` with the dispatch result in `task.artifacts[0].parts[0].data`.
+
+### 3. Thread real caller identity with `resolveAuth`
+
+```ts
+mountA2aAdapter(service, {
+  resolveAuth: (req) => getAuthState(req), // → RequestContext { userId, jwt }
+})
+```
+
+Scoped/$rate-limited tools are then decidable over A2A. Without it, requests run as an explicit anonymous context and scoped tools land in `TASK_STATE_AUTH_REQUIRED`.
+
+### 4. Swap the task store for durable deployments
+
+```ts
+import type { TaskStore } from '@aihu/agent-a2a'
+
+const kvStore: TaskStore = { get, save, list } // e.g. backed by KV/DB
+mountA2aAdapter(service, { taskStore: kvStore })
+```
+
+The default is per-adapter in-memory; `GetTask`/`ListTasks`/`CancelTask` read from this store.
+
+### 5. Keep A2A adapters in server-side entry points, not in browser bundles
+
+A2A involves network-level agent discovery and task routing. Mount adapters in your Node/edge server handler alongside your SSR entry point.
+
+## Anti-patterns
+
+### 1. Do not use the removed 0.1.x wire
+
+`/a2a/tasks/send`, `/a2a/tasks/sendSubscribe`, `/.well-known/agent.json`, the `"tag/action"` string `message` field, and the `[DONE]` SSE sentinel are all gone. The adapter speaks only the spec wire above.
+
+### 2. Do not expose the A2A endpoint without authentication
+
+A2A endpoints are discoverable by design. Wire `resolveAuth` and declare scopes on components for production deployments.
+
+### 3. Do not use A2A for same-page component communication — use signals
+
+A2A adds serialization, transport, and task lifecycle overhead. Two components on the same page should communicate via shared signals or context.
+
+### 4. Do not parse the SSE stream as one string — each frame is a JSON-RPC response
+
+`SendStreamingMessage` emits `data: {"jsonrpc":"2.0","id":…,"result":{…}}` frames whose result is a StreamResponse (`task` | `statusUpdate` | `artifactUpdate`). Terminality is the task state, not a sentinel line.
+
+### 5. Do not hardcode the card `url` in source — use environment variables
+
+```ts
+mountA2aAdapter(service, { url: import.meta.env.VITE_A2A_ENDPOINT })
+```
+
+## Canonical example files
+
+- `packages/agent-a2a/src/index.ts` — public API (mountA2aAdapter, createInMemoryTaskStore, types)
+- `packages/agent-a2a/src/a2a-adapter.ts` — adapter implementation (JSON-RPC methods, SSE)
+- `packages/agent-a2a/src/task-store.ts` — default in-memory TaskStore
+- `packages/agent-a2a/src/types.ts` — A2A v1.0.1 data model types
+- `packages/agent-service/llms.txt` — AgentService setup (prerequisite)

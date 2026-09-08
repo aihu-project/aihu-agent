@@ -1,0 +1,55 @@
+{
+  "name": "@aihu/agent-server",
+  "version": "0.4.5",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "rolldown -c",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack:check": "bun run --cwd ../.. release:contract --package=packages/agent-server",
+    "prepublishOnly": "bun run build"
+  },
+  "dependencies": {
+    "@aihu/agent": "^0.2.1",
+    "@aihu/agent-service": "^0.4.1",
+    "@aihu/arbor": "^4.1.2",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "jsdom": "^25.0.0"
+  },
+  "devDependencies": {
+    "@aihu/context": "^0.2.0",
+    "@aihu/runtime": "^6.1.0",
+    "@aihu/signals": "^0.5.1",
+    "@types/jsdom": "^21.1.7"
+  },
+  "description": "Server-side glue: mount an aihu component server-side and let an MCP client drive it through the agent-service live-dispatch gate, forwarding approved invocations to a browser bridge.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aihu-project/aihu-agent.git",
+    "directory": "packages/agent-server"
+  },
+  "homepage": "https://github.com/aihu-project/aihu-agent/tree/main/packages/agent-server#readme",
+  "bugs": "https://github.com/aihu-project/aihu-agent/issues",
+  "publishConfig": {
+    "access": "public"
+  }
+}
