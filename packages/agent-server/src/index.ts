@@ -15,6 +15,8 @@
 export { BRIDGE_PROTOCOL_VERSION, createAgentServer } from './agent-server.ts'
 export type { AgentDispatcher, BridgeClient, BridgeClientOptions } from './bridge-client.ts'
 export { createBridgeClient } from './bridge-client.ts'
+export { isAllowedBridgeOrigin } from './bridge-origin.ts'
+export { bridgeSignaturePayload, signBridgeInvoke, verifyBridgeInvoke } from './bridge-sig.ts'
 export { createComponentMcpServer, serveComponentMcp } from './mcp-server.ts'
 export { opaqueActionId, opaqueActionIdForTool, parseToolName } from './opaque-id.ts'
 export type {

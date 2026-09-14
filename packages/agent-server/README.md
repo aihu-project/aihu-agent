@@ -84,6 +84,68 @@ pass an in-memory channel. The server never imports `ws`.
   `503 BRIDGE_ERROR` rather than silently dropping it.
 - The forwarded frame contains only the opaque id + args — no scope, no
   rate-limit, no auth context.
+- An **unverified channel** (bad/missing protocol, or a rejected session — see
+  below) is never delegated to: `attachBridge` resets verification per
+  channel, and `callTool` refuses with `503 BRIDGE_UNVERIFIED` until a `hello`
+  proves both.
+
+### Securing the bridge transport
+
+`createAgentServer` never imports `ws` and never sees the raw socket or HTTP
+upgrade request, so it cannot check an `Origin` header or terminate a
+connection itself — that has to happen in the consumer's own WS server,
+_before_ the resulting socket is wrapped as a `BridgeChannel` and handed to
+`attachBridge`. Three pieces work together to secure a real deployment:
+
+**1. Origin allowlist (in your own WS server, not this package)** — use the
+exported `isAllowedBridgeOrigin` helper in your `ws` server's `verifyClient`
+(or a Node `http` `'upgrade'` listener) so a disallowed origin never reaches
+`attachBridge` at all. Fail-closed: an empty list, or a missing origin, never
+matches — there is no wildcard-allow.
+
+```ts
+import { isAllowedBridgeOrigin } from '@aihu/agent-server'
+import { WebSocketServer } from 'ws'
+
+const ALLOWED_ORIGINS = ['https://app.example.com']
+
+const wss = new WebSocketServer({
+  server: httpServer,
+  verifyClient: (info) => isAllowedBridgeOrigin(info.origin, ALLOWED_ORIGINS),
+})
+```
+
+**2. Session auth on the handshake** — pass `verifyBridgeSession` to
+`createAgentServer` to require a `hello.sessionToken` before a channel is ever
+delegated to. Reuse whatever already issues/validates sessions for your app
+(the same identity behind `authPlugin`/`resolveAuth` is a natural fit); this
+package supplies no session store of its own. A missing or invalid token is
+refused exactly like a protocol mismatch — `503 BRIDGE_UNVERIFIED`, nothing
+forwarded.
+
+```ts
+const server = createAgentServer({
+  target,
+  verifyBridgeSession: async (token) => Boolean(token) && (await sessions.isValid(token)),
+})
+```
+
+The browser client proves the same token in its `hello`:
+
+```ts
+createBridgeClient({ dispatcher, channel, sessionToken: mySessionToken })
+```
+
+**3. Signed invocations** — once a `hello.sessionToken` verifies, every
+`invoke` frame sent to that channel is HMAC-SHA-256 signed with that token
+(`BridgeInvokeMessage.sig`). A `createBridgeClient` configured with a matching
+`sessionToken` verifies this signature before running anything and replies
+`BRIDGE_SIG_INVALID` instead of executing when it doesn't match — so a channel
+that never proved the token cannot drive the dispatcher even if it can
+otherwise write frames into an already-connected socket. This is independent
+of (1) and (2): a client with no `sessionToken` configured skips verification
+entirely, preserving the pre-existing, protocol-only handshake for consumers
+who don't opt in.
 
 ## Testing
 
