@@ -38,6 +38,21 @@ The registry stores metadata by reference and uses last-registration-wins
 semantics. This supports module re-evaluation during development without
 introducing reactive or runtime dependencies.
 
+This package also exports `protocolCompatibility`, a read-only data table
+describing the support status (`core` / `supported` / `deprecated`) and
+protocol surface of each package in the agent family:
+
+```ts
+import { protocolCompatibility } from '@aihu/agent'
+
+for (const entry of protocolCompatibility) {
+  console.log(entry.packageName, entry.support, entry.protocol)
+}
+```
+
+See [the protocol compatibility matrix](../../docs/protocol-compatibility.md)
+for the rendered table.
+
 ## Scope
 
 This package is the core metadata registry only. Protocol adapters and server

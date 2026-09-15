@@ -7,7 +7,32 @@ Service-side agent runtime (server-hosted agent endpoints).
 Part of the **agent surface** layer of Aihu. Every Aihu component exposes its agent surface via the `@agent` block; this package implements the server-side dispatch and authorization seam used by protocol adapters.
 
 <!-- BEGIN_HANDWRITTEN: prose -->
-_(Hand-written prose lives in this block. Replace this placeholder; everything below is auto-generated.)_
+`createAgentService(options)` aggregates registered `@aihu/agent` metadata
+(or an explicit `options.manifests` list) into an `AgentService` and exposes
+it as MCP-compatible tools via `getManifest()`, `handleToolCall()`,
+`authorize()`, and `asMiddleware()`.
+
+```ts
+import { createAgentService } from '@aihu/agent-service'
+
+const service = createAgentService({
+  // Enables live dispatch; omit for a metadata-only service (404 on every call).
+  getRegistry: () => componentInstanceRegistry,
+  authPlugin, // optional — required for `$scope`-gated members
+  rateLimitPlugin, // optional — required for `$rate-limit`-gated members
+})
+
+const result = await service.handleToolCall('quote-card/increment', [])
+```
+
+Every call runs a fixed `404 → 401 → 403 → 429` security gate (missing
+instance → missing/invalid credential → scope denied → rate limited) before
+dispatch; `authorize()` runs the same gate without dispatching, which is how
+`@aihu/agent-server`'s capability-bridge keeps the server as policy
+authority while the browser instance executes. The lower-level principal
+primitives — `resolvePrincipal`, `decideEmission`, `surfaceCallPolicy`, and
+`isScopeValue` — back that gate and are exported for adapters that need to
+run the same policy decision outside `handleToolCall`.
 <!-- END_HANDWRITTEN: prose -->
 
 ## Install
