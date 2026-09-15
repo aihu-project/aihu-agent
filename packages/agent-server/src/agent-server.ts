@@ -24,6 +24,7 @@ import type { RequestContext } from '@aihu/agent-service'
 import { createAgentService } from '@aihu/agent-service'
 import type { MountScope, Snapshot } from '@aihu/arbor'
 import { _getComponentInstanceRegistry, mount } from '@aihu/arbor'
+import { signBridgeInvoke } from './bridge-sig.ts'
 import { opaqueActionIdForTool } from './opaque-id.ts'
 import type {
   AgentServer,
@@ -182,6 +183,15 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
   let handshakeReason = ''
   /** Woken when `handshake` leaves `'pending'`. */
   let handshakeWaiters: Array<() => void> = []
+  /**
+   * The `hello.sessionToken` for the CURRENT channel, once
+   * `verifyBridgeSession` has accepted it (issue #5). `undefined` when
+   * `verifyBridgeSession` is not configured, or the channel's `hello` carried
+   * no token. Used to HMAC-sign every `invoke` frame forwarded to this
+   * channel, so the browser dispatcher can verify a frame really came from a
+   * server that saw the same proven token.
+   */
+  let verifiedSessionToken: string | undefined
 
   function settleHandshake(state: 'verified' | 'rejected', reason: string): void {
     if (handshake !== 'pending') return
@@ -234,9 +244,40 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
     switch (msg.type) {
       case 'hello': {
         const verdict = checkHelloProtocol((msg as { protocol?: unknown }).protocol)
-        settleHandshake(
-          verdict.ok ? 'verified' : 'rejected',
-          verdict.ok ? '' : (verdict as { reason: string }).reason,
+        if (!verdict.ok) {
+          settleHandshake('rejected', verdict.reason)
+          return
+        }
+        if (!options.verifyBridgeSession) {
+          settleHandshake('verified', '')
+          return
+        }
+        // Session verification is async (it may consult a store, reuse
+        // `authPlugin`/`resolveAuth`, etc.) — `handleBridgeFrame` itself stays
+        // sync; the eventual result settles the handshake whenever it lands.
+        // `settleHandshake` is a no-op once `handshake` has left `'pending'`,
+        // so a later channel replacement or timeout can't be clobbered by a
+        // slow verifier resolving after the fact.
+        const rawToken = (msg as { sessionToken?: unknown }).sessionToken
+        const sessionToken = typeof rawToken === 'string' ? rawToken : undefined
+        Promise.resolve(options.verifyBridgeSession(sessionToken)).then(
+          (ok) => {
+            if (ok) {
+              verifiedSessionToken = sessionToken
+              settleHandshake('verified', '')
+            } else {
+              settleHandshake(
+                'rejected',
+                'bridge session unauthorized: verifyBridgeSession rejected the hello sessionToken',
+              )
+            }
+          },
+          (err) => {
+            settleHandshake(
+              'rejected',
+              `bridge session verification threw: ${err instanceof Error ? err.message : String(err)}`,
+            )
+          },
         )
         return
       }
@@ -316,11 +357,13 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
     // Replace any prior bridge.
     detachBridge?.()
     bridge = channel
-    // A new channel is a new peer: it must prove its protocol on its own, and
-    // must never inherit the previous channel's verified status.
+    // A new channel is a new peer: it must prove its protocol (and, when
+    // configured, its session token) on its own, and must never inherit the
+    // previous channel's verified status or signing key.
     handshake = 'pending'
     handshakeReason = ''
     handshakeWaiters = []
+    verifiedSessionToken = undefined
     const offMsg = channel.onMessage(handleBridgeFrame)
     const offClose = channel.onClose(() => {
       rejectAllPending('bridge disconnected')
@@ -340,12 +383,15 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
    * (the visible instance's result). If the bridge is disconnected mid-flight
    * the promise rejects (loud failure, per the plan's failure modes).
    */
-  function forwardToBridge(opaqueActionId: string, args: unknown[]): Promise<unknown> {
+  async function forwardToBridge(opaqueActionId: string, args: unknown[]): Promise<unknown> {
     if (!bridge?.connected) {
-      return Promise.resolve(undefined)
+      return undefined
     }
     const callId = `c${_callIdCounter++}`
     const frame: BridgeInvokeMessage = { type: 'invoke', callId, opaqueActionId, args }
+    if (verifiedSessionToken) {
+      frame.sig = await signBridgeInvoke(verifiedSessionToken, callId, opaqueActionId, args)
+    }
     return new Promise<unknown>((resolve, reject) => {
       pending.set(callId, { resolve, reject })
       try {

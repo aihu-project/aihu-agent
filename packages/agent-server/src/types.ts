@@ -80,6 +80,27 @@ export interface AgentServerOptions {
    * protocol version is rejected immediately, without waiting out this timeout.
    */
   bridgeHandshakeTimeoutMs?: number
+  /**
+   * Verify the `sessionToken` a bridge channel sends in its `hello` frame
+   * (issue #5). When set, a `hello` must resolve truthy through this function
+   * to become `'verified'` — a missing/invalid token is rejected exactly like
+   * a protocol mismatch (503 `BRIDGE_UNVERIFIED` from `callTool`), and no
+   * `invoke` is ever forwarded to that channel.
+   *
+   * Reuse existing session/auth plumbing here (e.g. look the token up against
+   * whatever issued it via `authPlugin`/`resolveAuth`) — this package does not
+   * provide a session store or a token format of its own.
+   *
+   * When a `hello` carrying this token verifies, the SAME token is used to
+   * HMAC-sign every subsequent `invoke` frame sent to that channel (see
+   * `BridgeInvokeMessage.sig`); the browser bridge client verifies that
+   * signature (via its own `sessionToken` option) before executing anything,
+   * so a channel that never proved the token cannot drive the dispatcher even
+   * if it can otherwise write frames into it. When this option is omitted,
+   * handshake verification is protocol-only (unchanged, backward compatible)
+   * and `invoke` frames are unsigned.
+   */
+  verifyBridgeSession?: (sessionToken: string | undefined) => boolean | Promise<boolean>
 }
 
 // ─── WS capability-bridge contract (T2 → T3) ─────────────────────────────────
@@ -116,6 +137,16 @@ export interface BridgeInvokeMessage {
   opaqueActionId: string
   /** Positional arguments for the action. */
   args: unknown[]
+  /**
+   * HMAC-SHA-256 (hex) over `{ callId, opaqueActionId, args }`, keyed on the
+   * `sessionToken` this channel proved at handshake (issue #5). Present only
+   * when the server verified a `hello.sessionToken` via
+   * `AgentServerOptions.verifyBridgeSession`; a client configured with a
+   * `sessionToken` of its own MUST verify this before executing the
+   * invocation (see `bridge-sig.ts`), independent of any transport-level
+   * trust — a rogue channel that never proved the token cannot forge one.
+   */
+  sig?: string
 }
 
 /**
@@ -161,6 +192,13 @@ export interface BridgeSnapshotMessage {
 export interface BridgeHelloMessage {
   type: 'hello'
   protocol: number
+  /**
+   * Session credential proving this channel's identity (issue #5). Required
+   * only when the server was built with `AgentServerOptions.verifyBridgeSession`
+   * — otherwise ignored. Never a policy input by itself: the server calls
+   * `verifyBridgeSession` to decide whether it is valid.
+   */
+  sessionToken?: string
 }
 
 /** Any message a client may send to the server over the bridge. */
