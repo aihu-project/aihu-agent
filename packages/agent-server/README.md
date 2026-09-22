@@ -226,7 +226,7 @@ bun add @aihu/agent-server
 <!-- regenerate: bun scripts/sync-readme.ts (also runs in pre-commit + CI) -->
 
 - [@aihu/agent-service](../agent-service)
-- [@aihu/mcp](../mcp)
+- [@aihu/mcp](https://github.com/aihu-project/aihu/tree/main/packages/mcp)
 - [Aihu agent repository](https://github.com/aihu-project/aihu-agent)
 
 <sub><i>Auto-generated against `@aihu/agent-server@0.4.5`.</i></sub>
