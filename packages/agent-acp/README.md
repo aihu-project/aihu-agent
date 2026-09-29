@@ -10,12 +10,13 @@ Part of the **agent surface** layer of Aihu. This package is retained only as a 
 > [!WARNING]
 > **DEPRECATED — use [`@aihu/agent-a2a`](../agent-a2a) instead.**
 >
-> This package is frozen at `0.1.x` and will receive no further features. The
-> ACP protocol it targeted (BeeAI ACP) **merged into the A2A protocol under the
-> Linux Foundation in August 2025** — its maintainers migrated, and there is no
-> independent ACP spec left to conform to. (The name "ACP" now belongs to Zed's
-> unrelated editor↔agent Agent Client Protocol, which this package never
-> implemented.)
+> This package's feature set is frozen and will receive no further features —
+> only patch releases for internal dependency-range updates land (see the
+> version below). The ACP protocol it targeted (BeeAI ACP) **merged into the
+> A2A protocol under the Linux Foundation in August 2025** — its maintainers
+> migrated, and there is no independent ACP spec left to conform to. (The name
+> "ACP" now belongs to Zed's unrelated editor↔agent Agent Client Protocol,
+> which this package never implemented.)
 >
 > **Migration:** mount [`mountA2aAdapter`](../agent-a2a) from `@aihu/agent-a2a`
 > on the same `AgentService`. The A2A adapter speaks the A2A v1.0.1 JSON-RPC
