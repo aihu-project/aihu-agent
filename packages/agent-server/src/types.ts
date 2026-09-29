@@ -16,6 +16,7 @@ import type {
   RequestContext,
 } from '@aihu/agent-service'
 import type { AgentBindingSpec, MountScope, Node, Snapshot } from '@aihu/arbor'
+import type { BridgeNonce } from './bridge-nonce.ts'
 
 // ─── createAgentServer options ───────────────────────────────────────────────
 
@@ -101,6 +102,32 @@ export interface AgentServerOptions {
    * and `invoke` frames are unsigned.
    */
   verifyBridgeSession?: (sessionToken: string | undefined) => boolean | Promise<boolean>
+  /**
+   * Require every `hello` to carry a valid, unused, unexpired nonce from
+   * {@link AgentServer.issueBridgeNonce} (issue #13). When `true`, a `hello`
+   * with a missing, unknown, expired, or already-consumed `nonce` is rejected
+   * exactly like a protocol mismatch (503 `BRIDGE_UNVERIFIED`) — independent
+   * of, and checked before, `verifyBridgeSession`. This binds the handshake to
+   * ONE issued nonce: a captured/replayed `hello`, or a second concurrent
+   * attach reusing the same nonce, fails even with an otherwise-valid session
+   * token. Defaults to `false` (no nonce required — backward compatible).
+   */
+  requireBridgeNonce?: boolean
+  /**
+   * Re-checked before EVERY forwarded `invoke`, not just at handshake time
+   * (issue #13) — so a channel already past its `hello` cannot ride out a
+   * mid-session revocation indefinitely. Receives the session token and
+   * `grantVersion` (if any) the channel proved at handshake; returning
+   * `false` (or a rejected promise) refuses that one invoke with 403
+   * `BRIDGE_REVOKED` without forwarding it, and the SAME check runs again on
+   * the channel's next invoke — nothing here closes the connection outright,
+   * so a later-restored grant recovers on its own. Omit to keep today's
+   * behavior: handshake verification is the only check (backward compatible).
+   */
+  reauthorizeBridgeInvoke?: (info: {
+    readonly sessionToken: string | undefined
+    readonly grantVersion: string | undefined
+  }) => boolean | Promise<boolean>
 }
 
 // ─── WS capability-bridge contract (T2 → T3) ─────────────────────────────────
@@ -199,6 +226,22 @@ export interface BridgeHelloMessage {
    * `verifyBridgeSession` to decide whether it is valid.
    */
   sessionToken?: string
+  /**
+   * A nonce from {@link AgentServer.issueBridgeNonce} (issue #13). Required
+   * only when the server was built with `AgentServerOptions.requireBridgeNonce`
+   * — otherwise ignored. Single-use: consumed by the server on this `hello`
+   * and refused on any later replay, independent of `sessionToken`.
+   */
+  nonce?: string
+  /**
+   * Opaque actor/session/grant generation the client believes is current
+   * (issue #13). Carried verbatim from `hello` and handed to
+   * `AgentServerOptions.reauthorizeBridgeInvoke` before every forwarded
+   * `invoke`, so a grant revoked/downgraded after handshake is caught on the
+   * channel's NEXT call rather than only at a future re-handshake. Meaningless
+   * without `reauthorizeBridgeInvoke` configured.
+   */
+  grantVersion?: string
 }
 
 /** Any message a client may send to the server over the bridge. */
@@ -265,6 +308,16 @@ export interface AgentServer {
    * inherited from a previous peer.
    */
   attachBridge(channel: BridgeChannel): () => void
+
+  /**
+   * Issue a single-use, short-lived nonce (issue #13) for the NEXT bridge
+   * `hello` to echo back. Hand it to the browser client out-of-band (e.g. in
+   * the same response that grants it a session token) before it opens the WS
+   * connection. Only enforced when the server was built with
+   * `AgentServerOptions.requireBridgeNonce: true` — otherwise issuing one is
+   * harmless but unused.
+   */
+  issueBridgeNonce(ttlMs?: number): BridgeNonce
 
   /**
    * Build the MCP `Server` (stdio-ready) exposing each component action as an

@@ -14,6 +14,9 @@
  *    an invocation whose signature doesn't verify — even over an otherwise
  *    already-connected channel — so a rogue writer into the channel still
  *    cannot drive the dispatcher.
+ *  - `createBridgeNonceStore` / `requireBridgeNonce` / `reauthorizeBridgeInvoke`
+ *    (issue #13): single-use handshake nonces, and reauthorization on every
+ *    invoke rather than only at handshake time.
  */
 
 import { registerAgentMetadata } from '@aihu/agent'
@@ -23,6 +26,7 @@ import { JSDOM } from 'jsdom'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createAgentServer } from '../src/agent-server.ts'
 import { type AgentDispatcher, createBridgeClient } from '../src/bridge-client.ts'
+import { createBridgeNonceStore } from '../src/bridge-nonce.ts'
 import { isAllowedBridgeOrigin } from '../src/bridge-origin.ts'
 import { opaqueActionId } from '../src/opaque-id.ts'
 import type { AgentServer, BridgeChannel } from '../src/types.ts'
@@ -438,5 +442,270 @@ describe('full loop: a real bridge client refuses an unverified invoke signature
     )
     expect(errorFrame).toBeDefined()
     expect(String(errorFrame?.message)).toContain('BRIDGE_SIG_INVALID')
+  })
+})
+
+// ─── createBridgeNonceStore: the single-use nonce primitive (issue #13) ─────
+
+describe('createBridgeNonceStore', () => {
+  it('a freshly issued nonce consumes exactly once', () => {
+    const store = createBridgeNonceStore()
+    const { nonce } = store.issue()
+    expect(store.consume(nonce)).toBe(true)
+    expect(store.consume(nonce)).toBe(false) // replay
+  })
+
+  it('rejects an unknown nonce', () => {
+    const store = createBridgeNonceStore()
+    expect(store.consume('never-issued')).toBe(false)
+  })
+
+  it('rejects a missing/non-string/empty nonce without throwing', () => {
+    const store = createBridgeNonceStore()
+    expect(store.consume(undefined)).toBe(false)
+    expect(store.consume(null)).toBe(false)
+    expect(store.consume('')).toBe(false)
+    expect(store.consume(42)).toBe(false)
+  })
+
+  it('rejects an expired nonce, even on its first consult', async () => {
+    const store = createBridgeNonceStore()
+    const { nonce } = store.issue(1)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(store.consume(nonce)).toBe(false)
+  })
+
+  it('two issued nonces are independent — consuming one does not consume the other', () => {
+    const store = createBridgeNonceStore()
+    const a = store.issue()
+    const b = store.issue()
+    expect(store.consume(a.nonce)).toBe(true)
+    expect(store.consume(b.nonce)).toBe(true)
+  })
+})
+
+// ─── requireBridgeNonce: handshake binding (issue #13) ───────────────────────
+
+describe('requireBridgeNonce — a hello must prove it was issued a nonce, not just a protocol', () => {
+  it('a hello with NO nonce is rejected when requireBridgeNonce is set', async () => {
+    const counter = makeCounter()
+    const server = spawn({
+      target: { node: counter.node, agentBinding: counter.agentBinding },
+      createHost: host,
+      requireBridgeNonce: true,
+    })
+    const sent: string[] = []
+    const bridge = makeFakeBridge((d) => sent.push(d))
+    server.attachBridge(bridge)
+    bridge.reply(JSON.stringify({ type: 'hello', protocol: BRIDGE_PROTOCOL_VERSION }))
+
+    const res = (await server.callTool(`${TAG}/increment`, [1], { userId: 'u1' })) as {
+      code?: number
+      error?: string
+    }
+    expect(res.code).toBe(503)
+    expect(res.error).toContain('BRIDGE_UNVERIFIED')
+    expect(sent.filter((s) => s.includes('"invoke"'))).toHaveLength(0)
+  })
+
+  it('a hello with an UNISSUED nonce is rejected', async () => {
+    const counter = makeCounter()
+    const server = spawn({
+      target: { node: counter.node, agentBinding: counter.agentBinding },
+      createHost: host,
+      requireBridgeNonce: true,
+    })
+    const bridge = makeFakeBridge(() => {})
+    server.attachBridge(bridge)
+    bridge.reply(
+      JSON.stringify({ type: 'hello', protocol: BRIDGE_PROTOCOL_VERSION, nonce: 'forged' }),
+    )
+
+    const res = (await server.callTool(`${TAG}/increment`, [1], { userId: 'u1' })) as {
+      code?: number
+    }
+    expect(res.code).toBe(503)
+  })
+
+  it('a hello with a VALID issued nonce verifies and the invoke is forwarded', async () => {
+    const counter = makeCounter()
+    const server = spawn({
+      target: { node: counter.node, agentBinding: counter.agentBinding },
+      createHost: host,
+      requireBridgeNonce: true,
+    })
+    const { nonce } = server.issueBridgeNonce()
+    let lastFrame: { type: string } | null = null
+    const bridge = makeFakeBridge((d) => {
+      lastFrame = JSON.parse(d)
+      const frame = lastFrame as unknown as { callId: string }
+      bridge.reply(JSON.stringify({ type: 'result', callId: frame.callId, result: 1 }))
+    })
+    server.attachBridge(bridge)
+    bridge.reply(JSON.stringify({ type: 'hello', protocol: BRIDGE_PROTOCOL_VERSION, nonce }))
+
+    const res = (await server.callTool(`${TAG}/increment`, [1], { userId: 'u1' })) as {
+      code?: number
+    }
+    expect(res.code).toBeUndefined()
+    expect(lastFrame).not.toBeNull()
+    expect(lastFrame!.type).toBe('invoke')
+  })
+
+  it('replaying the SAME nonce on a second attach is rejected — single use', async () => {
+    const counter = makeCounter()
+    const server = spawn({
+      target: { node: counter.node, agentBinding: counter.agentBinding },
+      createHost: host,
+      bridgeHandshakeTimeoutMs: 50,
+      requireBridgeNonce: true,
+    })
+    const { nonce } = server.issueBridgeNonce()
+
+    const first = makeFakeBridge(() => {})
+    server.attachBridge(first)
+    first.reply(JSON.stringify({ type: 'hello', protocol: BRIDGE_PROTOCOL_VERSION, nonce }))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const sent: string[] = []
+    const replay = makeFakeBridge((d) => sent.push(d))
+    server.attachBridge(replay) // a fresh channel replaying the already-used nonce
+    replay.reply(JSON.stringify({ type: 'hello', protocol: BRIDGE_PROTOCOL_VERSION, nonce }))
+
+    const res = (await server.callTool(`${TAG}/increment`, [1], { userId: 'u1' })) as {
+      code?: number
+    }
+    expect(res.code).toBe(503)
+    expect(sent.filter((s) => s.includes('"invoke"'))).toHaveLength(0)
+  })
+
+  it('the existing origin/session checks stay independent controls — a valid nonce alone is not enough', async () => {
+    const counter = makeCounter()
+    const server = spawn({
+      target: { node: counter.node, agentBinding: counter.agentBinding },
+      createHost: host,
+      requireBridgeNonce: true,
+      verifyBridgeSession: (token) => token === 'good-token',
+    })
+    const { nonce } = server.issueBridgeNonce()
+    const bridge = makeFakeBridge(() => {})
+    server.attachBridge(bridge)
+    // Valid nonce, but no (or a wrong) session token — the additive control
+    // still refuses this hello.
+    bridge.reply(JSON.stringify({ type: 'hello', protocol: BRIDGE_PROTOCOL_VERSION, nonce }))
+
+    const res = (await server.callTool(`${TAG}/increment`, [1], { userId: 'u1' })) as {
+      code?: number
+    }
+    expect(res.code).toBe(503)
+  })
+})
+
+// ─── reauthorizeBridgeInvoke: reauthorize every invoke, not just handshake ──
+
+describe('reauthorizeBridgeInvoke — a revoked grant is caught on the NEXT invoke (issue #13)', () => {
+  it('allows invokes while the grant check passes', async () => {
+    const counter = makeCounter()
+    const server = spawn({
+      target: { node: counter.node, agentBinding: counter.agentBinding },
+      createHost: host,
+      reauthorizeBridgeInvoke: () => true,
+    })
+    const bridge = makeFakeBridge((d) => {
+      const frame = JSON.parse(d) as { callId: string }
+      bridge.reply(JSON.stringify({ type: 'result', callId: frame.callId, result: 1 }))
+    })
+    server.attachBridge(bridge)
+    bridge.reply(JSON.stringify({ type: 'hello', protocol: BRIDGE_PROTOCOL_VERSION }))
+
+    const res = (await server.callTool(`${TAG}/increment`, [1], { userId: 'u1' })) as {
+      code?: number
+    }
+    expect(res.code).toBeUndefined()
+  })
+
+  it('refuses an invoke with 403 BRIDGE_REVOKED without forwarding it, without a new handshake', async () => {
+    const counter = makeCounter()
+    const server = spawn({
+      target: { node: counter.node, agentBinding: counter.agentBinding },
+      createHost: host,
+      reauthorizeBridgeInvoke: () => false,
+    })
+    const sent: string[] = []
+    const bridge = makeFakeBridge((d) => sent.push(d))
+    server.attachBridge(bridge)
+    bridge.reply(JSON.stringify({ type: 'hello', protocol: BRIDGE_PROTOCOL_VERSION }))
+
+    const res = (await server.callTool(`${TAG}/increment`, [1], { userId: 'u1' })) as {
+      code?: number
+      error?: string
+    }
+    expect(res.code).toBe(403)
+    expect(res.error).toContain('BRIDGE_REVOKED')
+    expect(sent.filter((s) => s.includes('"invoke"'))).toHaveLength(0)
+  })
+
+  it('mid-session revocation: an already-verified, already-open channel is cut off on its NEXT invoke', async () => {
+    const counter = makeCounter()
+    let granted = true
+    const server = spawn({
+      target: { node: counter.node, agentBinding: counter.agentBinding },
+      createHost: host,
+      reauthorizeBridgeInvoke: () => granted,
+    })
+    const bridge = makeFakeBridge((d) => {
+      const frame = JSON.parse(d) as { callId: string }
+      bridge.reply(JSON.stringify({ type: 'result', callId: frame.callId, result: 1 }))
+    })
+    server.attachBridge(bridge)
+    bridge.reply(JSON.stringify({ type: 'hello', protocol: BRIDGE_PROTOCOL_VERSION }))
+
+    // First call succeeds while the grant is live — the handshake never
+    // needs to be redone for this.
+    const first = (await server.callTool(`${TAG}/increment`, [1], { userId: 'u1' })) as {
+      code?: number
+    }
+    expect(first.code).toBeUndefined()
+
+    // The grant is revoked out-of-band (no new hello, connection stays open).
+    granted = false
+
+    const second = (await server.callTool(`${TAG}/increment`, [1], { userId: 'u1' })) as {
+      code?: number
+      error?: string
+    }
+    expect(second.code).toBe(403)
+    expect(second.error).toContain('BRIDGE_REVOKED')
+  })
+
+  it('receives the sessionToken and grantVersion proved at handshake', async () => {
+    const counter = makeCounter()
+    const seen: Array<{ sessionToken: string | undefined; grantVersion: string | undefined }> = []
+    const server = spawn({
+      target: { node: counter.node, agentBinding: counter.agentBinding },
+      createHost: host,
+      verifyBridgeSession: (token) => token === 'good-token',
+      reauthorizeBridgeInvoke: (info) => {
+        seen.push(info)
+        return true
+      },
+    })
+    const bridge = makeFakeBridge((d) => {
+      const frame = JSON.parse(d) as { callId: string }
+      bridge.reply(JSON.stringify({ type: 'result', callId: frame.callId, result: 1 }))
+    })
+    server.attachBridge(bridge)
+    bridge.reply(
+      JSON.stringify({
+        type: 'hello',
+        protocol: BRIDGE_PROTOCOL_VERSION,
+        sessionToken: 'good-token',
+        grantVersion: 'g1',
+      }),
+    )
+
+    await server.callTool(`${TAG}/increment`, [1], { userId: 'u1' })
+    expect(seen).toEqual([{ sessionToken: 'good-token', grantVersion: 'g1' }])
   })
 })

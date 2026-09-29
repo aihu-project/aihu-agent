@@ -147,6 +147,47 @@ of (1) and (2): a client with no `sessionToken` configured skips verification
 entirely, preserving the pre-existing, protocol-only handshake for consumers
 who don't opt in.
 
+**4. Handshake nonce + per-invoke reauthorization** — origin and session-token
+checks answer "which page/session may attach"; they don't stop a captured or
+duplicated `hello` from the same origin+session being replayed, and they don't
+notice a grant revoked *after* a channel already verified. Two more, still
+independent, opt-in controls close those gaps:
+
+```ts
+const server = createAgentServer({
+  target,
+  verifyBridgeSession: async (token) => Boolean(token) && (await sessions.isValid(token)),
+  requireBridgeNonce: true,
+  reauthorizeBridgeInvoke: async ({ sessionToken, grantVersion }) =>
+    sessions.isCurrentGrant(sessionToken, grantVersion),
+})
+
+// Before the browser opens its WebSocket, hand it a one-time nonce (e.g. in
+// the same response that issues its session token):
+const { nonce } = server.issueBridgeNonce()
+```
+
+The browser client echoes both back in its `hello`:
+
+```ts
+createBridgeClient({
+  dispatcher,
+  channel,
+  sessionToken: mySessionToken,
+  nonce: myIssuedNonce,
+  grantVersion: myCurrentGrantVersion,
+})
+```
+
+`requireBridgeNonce` rejects any `hello` whose `nonce` is missing, unknown,
+expired, or already consumed — `503 BRIDGE_UNVERIFIED`, same as a bad
+`sessionToken`, and checked independently of it. `reauthorizeBridgeInvoke` runs
+before EVERY forwarded `invoke`, not just at handshake — so a channel that
+verified minutes ago and has stayed open cannot ride out a revoked/downgraded
+grant: the very next call it makes is refused with `403 BRIDGE_REVOKED`
+without ever reaching the browser, no new `hello` required. Both are additive:
+omit either to keep today's handshake-only, replay-tolerant behavior.
+
 ## Testing
 
 ```bash

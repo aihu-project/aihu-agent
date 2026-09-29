@@ -24,6 +24,7 @@ import type { RequestContext } from '@aihu/agent-service'
 import { createAgentService } from '@aihu/agent-service'
 import type { MountScope, Snapshot } from '@aihu/arbor'
 import { _getComponentInstanceRegistry, mount } from '@aihu/arbor'
+import { createBridgeNonceStore } from './bridge-nonce.ts'
 import { signBridgeInvoke } from './bridge-sig.ts'
 import { opaqueActionIdForTool } from './opaque-id.ts'
 import type {
@@ -163,6 +164,8 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
   let detachBridge: (() => void) | null = null
   const pending = new Map<string, PendingBridgeCall>()
   let lastBridgeSnapshot: Snapshot | null = null
+  // Issue #13: single-use handshake nonces, one store per server instance.
+  const nonceStore = createBridgeNonceStore()
 
   // ── Bridge handshake state (thesis §3: the client is never the authority) ──
   //
@@ -192,6 +195,14 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
    * server that saw the same proven token.
    */
   let verifiedSessionToken: string | undefined
+  /**
+   * The `hello.grantVersion` for the CURRENT channel (issue #13), captured
+   * alongside `verifiedSessionToken` regardless of whether the handshake used
+   * a session token at all. Re-sent to `reauthorizeBridgeInvoke` on every
+   * forwarded invoke so a revoked/downgraded grant is caught on the channel's
+   * NEXT call, not only at its next `hello`.
+   */
+  let verifiedGrantVersion: string | undefined
 
   function settleHandshake(state: 'verified' | 'rejected', reason: string): void {
     if (handshake !== 'pending') return
@@ -248,6 +259,19 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
           settleHandshake('rejected', verdict.reason)
           return
         }
+        // Issue #13: an independent, ADDITIONAL control alongside origin and
+        // session-token checks — never a replacement. Checked before
+        // `verifyBridgeSession` so a replayed/duplicated `hello` is refused
+        // for its own reason even when it carries an otherwise-valid token.
+        if (options.requireBridgeNonce) {
+          const rawNonce = (msg as { nonce?: unknown }).nonce
+          if (!nonceStore.consume(rawNonce)) {
+            settleHandshake('rejected', 'bridge nonce missing, unknown, expired, or already used')
+            return
+          }
+        }
+        const rawGrantVersion = (msg as { grantVersion?: unknown }).grantVersion
+        verifiedGrantVersion = typeof rawGrantVersion === 'string' ? rawGrantVersion : undefined
         if (!options.verifyBridgeSession) {
           settleHandshake('verified', '')
           return
@@ -364,6 +388,7 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
     handshakeReason = ''
     handshakeWaiters = []
     verifiedSessionToken = undefined
+    verifiedGrantVersion = undefined
     const offMsg = channel.onMessage(handleBridgeFrame)
     const offClose = channel.onClose(() => {
       rejectAllPending('bridge disconnected')
@@ -434,6 +459,25 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
         return { error: `BRIDGE_UNVERIFIED: ${handshakeReason}`, code: 503 }
       }
 
+      // Issue #13: reauthorize EVERY invoke, not just the handshake — so a
+      // channel that has been sitting connected since a now-revoked/
+      // downgraded grant cannot ride that grant out indefinitely. Ordered
+      // after the handshake check (a still-pending/rejected channel is
+      // refused for that reason first) and before forwarding, so a revoked
+      // invoke is never sent to the browser.
+      if (options.reauthorizeBridgeInvoke) {
+        const stillGranted = await options.reauthorizeBridgeInvoke({
+          sessionToken: verifiedSessionToken,
+          grantVersion: verifiedGrantVersion,
+        })
+        if (!stillGranted) {
+          return {
+            error: 'BRIDGE_REVOKED: reauthorizeBridgeInvoke refused this invoke',
+            code: 403,
+          }
+        }
+      }
+
       const opaqueActionId = opaqueActionIdForTool(toolName)
       if (!opaqueActionId) return { error: `bad tool: ${toolName}`, code: 400 }
 
@@ -469,6 +513,7 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
     callTool,
     serialize,
     attachBridge,
+    issueBridgeNonce: (ttlMs?: number) => nonceStore.issue(ttlMs),
     dispose,
   }
 }

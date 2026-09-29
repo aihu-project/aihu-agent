@@ -56,6 +56,20 @@ export interface BridgeClientOptions {
    * (backward compatible: no signature is required or checked).
    */
   sessionToken?: string
+  /**
+   * A nonce from the server's `issueBridgeNonce()` (issue #13), obtained
+   * out-of-band before opening this channel. Sent verbatim in `hello.nonce`.
+   * Required only when the server was built with
+   * `AgentServerOptions.requireBridgeNonce`; omit otherwise.
+   */
+  nonce?: string
+  /**
+   * The actor/session/grant generation this client believes is current
+   * (issue #13). Sent verbatim in `hello.grantVersion` and re-checked by the
+   * server before every forwarded invoke when it was built with
+   * `AgentServerOptions.reauthorizeBridgeInvoke`.
+   */
+  grantVersion?: string
 }
 
 /** A running bridge client. */
@@ -82,6 +96,8 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
     type: 'hello',
     protocol: BRIDGE_PROTOCOL_VERSION,
     ...(options.sessionToken ? { sessionToken: options.sessionToken } : {}),
+    ...(options.nonce ? { nonce: options.nonce } : {}),
+    ...(options.grantVersion ? { grantVersion: options.grantVersion } : {}),
   })
 
   async function handleInvoke(
