@@ -523,6 +523,136 @@ function decideRead(principal: Principal, value: ExtractReadValue): EmissionDeci
   return { allow: true, axis: 'read', tier: 'hard' }
 }
 
+// ─── Actor context (tenant-aware, aihu-agent#17 / aihu#870) ─────────────────
+
+/**
+ * Who is making an agent-facing call, beyond the bare `Principal`: a
+ * `human` (a verified human session acting for themselves), a
+ * `delegated-agent` (an agent acting on a human's behalf, e.g. under a
+ * granted `grantId`), or a `machine` (a fully autonomous agent principal
+ * with no human in the loop).
+ */
+export type ActorKind = 'human' | 'delegated-agent' | 'machine'
+
+/**
+ * Tenant-aware actor context for one request (spec: aihu-agent#17). Every
+ * field is derived from signature-verified claims plus a current,
+ * authoritative lookup ({@link ActorLookup}) — NEVER from a caller-supplied
+ * value. In particular `organizationId` never comes from request input:
+ * {@link resolveActor} takes no such parameter, so there is no path for one
+ * to reach this shape even if a careless host reads one off the request.
+ */
+export interface Actor {
+  readonly kind: ActorKind
+  /** The verified principal's subject/key ID (`Principal.sub`). */
+  readonly subject: string
+  readonly organizationId: string
+  readonly scopes: readonly string[]
+  readonly issuer: string | null
+  readonly audience: string | null
+  readonly grantId: string | null
+  readonly grantVersion: string | null
+}
+
+/** What an {@link ActorLookup} resolves for one verified principal. */
+export interface ActorLookupResult {
+  readonly kind: ActorKind
+  readonly organizationId: string
+  /** Defaults to the principal's own `scopes` when omitted. */
+  readonly scopes?: readonly string[] | undefined
+  readonly grantId?: string | null | undefined
+  readonly grantVersion?: string | null | undefined
+}
+
+/**
+ * The host-injected, CURRENT authoritative lookup {@link resolveActor}
+ * consults — e.g. a tenant/organization membership check. This is the
+ * "current lookup" half of the derivation: the verified claims alone are a
+ * point-in-time JWT payload and cannot prove a membership hasn't since been
+ * revoked, so `resolve` is expected to consult live state, not just decode
+ * the claims it is handed.
+ *
+ * Returning `null` means "no current grant for this principal" — actor
+ * resolution denies (fail closed), it does not fall back to the claims alone.
+ */
+export interface ActorLookup {
+  resolve(
+    principal: Exclude<Principal, AnonymousPrincipal>,
+    claims: VerifiedClaims | undefined,
+  ): ActorLookupResult | null | Promise<ActorLookupResult | null>
+}
+
+/** Why {@link resolveActor} refused to produce an {@link Actor}. */
+export type ActorResolutionFailure =
+  /** The principal never verified (spec: an anonymous principal never gets an actor). */
+  | 'anonymous-principal'
+  /** No {@link ActorLookup} was configured — fail closed, never ANONYMOUS-with-full-access. */
+  | 'no-actor-lookup'
+  /** The lookup ran and found no current grant for this principal. */
+  | 'lookup-denied'
+
+/** The outcome of one {@link resolveActor} call. */
+export type ActorResolution =
+  | { readonly ok: true; readonly actor: Actor }
+  | { readonly ok: false; readonly reason: ActorResolutionFailure }
+
+function claimString(claims: VerifiedClaims | undefined, key: 'iss' | 'aud'): string | null {
+  const value = claims?.[key]
+  return typeof value === 'string' && value !== '' ? value : null
+}
+
+/**
+ * Resolve the tenant-aware {@link Actor} for an already-verified `principal`
+ * (spec: aihu-agent#17 / aihu#870).
+ *
+ * Fail-closed on every rung, matching this module's existing posture:
+ *   - An anonymous principal never produces an actor (`'anonymous-principal'`).
+ *   - No `deps.actorLookup` configured → EVERY call denies
+ *     (`'no-actor-lookup'`) rather than defaulting to ANONYMOUS-with-full-access.
+ *   - The lookup itself is the ONLY source of `organizationId`/`kind`/grant
+ *     fields: this function accepts no such parameter, so a caller-supplied
+ *     `organizationId` (e.g. lifted from a request body by a host) has no
+ *     path into the returned `Actor` even if a caller sends one.
+ */
+export function resolveActor(
+  principal: Principal,
+  deps: { readonly actorLookup?: ActorLookup | undefined },
+): ActorResolution | Promise<ActorResolution> {
+  if (principal.class === 'anonymous') {
+    return { ok: false, reason: 'anonymous-principal' }
+  }
+  const lookup = deps.actorLookup
+  if (!lookup) {
+    return { ok: false, reason: 'no-actor-lookup' }
+  }
+  const claims = principal.class === 'human-session' ? undefined : principal.claims
+  const result = lookup.resolve(principal, claims)
+  return result instanceof Promise
+    ? result.then((r) => toActorResolution(principal, claims, r))
+    : toActorResolution(principal, claims, result)
+}
+
+function toActorResolution(
+  principal: Exclude<Principal, AnonymousPrincipal>,
+  claims: VerifiedClaims | undefined,
+  result: ActorLookupResult | null,
+): ActorResolution {
+  if (result === null) return { ok: false, reason: 'lookup-denied' }
+  return {
+    ok: true,
+    actor: {
+      kind: result.kind,
+      subject: principal.sub,
+      organizationId: result.organizationId,
+      scopes: result.scopes ?? principal.scopes,
+      issuer: claimString(claims, 'iss'),
+      audience: claimString(claims, 'aud'),
+      grantId: result.grantId ?? null,
+      grantVersion: result.grantVersion ?? null,
+    },
+  }
+}
+
 // ─── Surface policy from compiled metadata ───────────────────────────────────
 
 /**

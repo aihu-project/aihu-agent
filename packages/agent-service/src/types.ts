@@ -11,6 +11,7 @@ export type { ActionSchema, InputSchema } from '@aihu/agent'
 
 import type { AgentMetadata } from '@aihu/agent'
 import type { EntitlementMemo, EntitlementsHandle } from './entitlements.ts'
+import type { Actor } from './principal-gate.ts'
 
 // ─── v0.3.0 — LiveBinding (RFC §2.2) ─────────────────────────────────────────
 
@@ -79,6 +80,20 @@ export interface RequestContext {
    * input — only a deduplication scope.
    */
   readonly entitlementMemo?: EntitlementMemo
+  /**
+   * Tenant-aware actor context (aihu-agent#17, aihu#870), resolved by the
+   * HOST via `resolveActor` (`principal-gate.ts`) — e.g. from inside a
+   * custom `AgentServiceOptions.resolveAuth` — BEFORE this `RequestContext`
+   * is constructed. Like `jwt`, this is never trusted from raw request
+   * input: `resolveActor` derives every field from signature-verified
+   * claims plus a current, authoritative lookup (`ActorLookup`), and in
+   * particular never accepts a caller-supplied `organizationId`. Absent
+   * when the host has not wired actor resolution, or when `resolveActor`
+   * denied (no lookup configured, anonymous principal, or no current
+   * grant) — callers needing tenant scoping MUST treat a missing `actor`
+   * as "deny", never as "no tenant restriction".
+   */
+  readonly actor?: Actor | undefined
 }
 
 // ─── v0.3.0 — auth/scope plugin ──────────────────────────────────────────────
