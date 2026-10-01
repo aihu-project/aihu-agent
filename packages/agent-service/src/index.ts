@@ -3,14 +3,29 @@
  *
  * Value exports: `createAgentService`, and the GX Phase 2 principal gate:
  *               `resolvePrincipal`, `decideEmission`, `surfaceCallPolicy`,
- *               `isScopeValue`
+ *               `isScopeValue`; the aihu#871 capability hook:
+ *               `authorizeCapability`, `projectCapabilityResult`
  * Type exports: `AgentManifest`, `AgentToolEntry`, `AgentService`,
  *               `AgentServiceOptions`, `InputSchema`, `ActionSchema`,
  *               `LiveBinding`, `RequestContext`, `AuthPlugin`,
- *               `RateLimitPlugin`, `VerifiedClaims`, and the principal-gate
- *               types (`Principal`, `EmissionDecision`, …)
+ *               `RateLimitPlugin`, `VerifiedClaims`, the principal-gate
+ *               types (`Principal`, `EmissionDecision`, …), and the
+ *               capability-gate types (`CapabilityAuthorizationVerdict`, …)
  */
 export { createAgentService } from './agent-service.ts'
+// aihu#871 — the capability authorization hook for per-resource data reads.
+export type {
+  CapabilityAuthorizationRequest,
+  CapabilityAuthorizationVerdict,
+  CapabilityDenyReason,
+  CapabilityGrant,
+  CapabilityGrantResolver,
+  CapabilityProjection,
+} from './capability-gate.ts'
+export {
+  authorizeCapability,
+  projectCapabilityResult,
+} from './capability-gate.ts'
 // GX Phase 4 (#466) — the live-entitlement contract the call axis consults.
 // The engine lives in `@aihu/server` (`createGovernedRegistry`); these types
 // are the structural seam that keeps this package server-agnostic.

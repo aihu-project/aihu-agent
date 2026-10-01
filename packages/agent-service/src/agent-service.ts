@@ -11,6 +11,11 @@
  */
 import type { AgentMetadata } from '@aihu/agent'
 import {
+  authorizeCapability,
+  projectCapabilityResult,
+} from './capability-gate.ts'
+import type { Principal } from './principal-gate.ts'
+import {
   decideEmission,
   isScopeValue,
   resolvePrincipal,
@@ -104,7 +109,10 @@ function metadataToToolEntry(meta: AgentMetadata): AgentToolEntry {
  * @param options.getRegistry - Getter for the `componentInstanceRegistry`
  *   from `@aihu/arbor/mount`. Injected to avoid circular package deps.
  */
-function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): AgentService {
+function buildService(
+  metas: AgentMetadata[],
+  options?: AgentServiceOptions,
+): AgentService {
   const tools: AgentToolEntry[] = metas.map(metadataToToolEntry)
   const manifest: AgentManifest = { tools }
 
@@ -137,11 +145,18 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
     toolName: string,
     requestContext?: RequestContext,
   ): Promise<
-    | { ok: true; binding: LiveBinding; tag: string; action: string }
+    | {
+        ok: true
+        binding: LiveBinding
+        tag: string
+        action: string
+        principal: Principal
+      }
     | { ok: false; envelope: ReturnType<typeof jsonrpcError> }
   > {
     const slash = toolName.indexOf('/')
-    if (slash === -1) return { ok: false, envelope: jsonrpcError(400, `bad tool: ${toolName}`) }
+    if (slash === -1)
+      return { ok: false, envelope: jsonrpcError(400, `bad tool: ${toolName}`) }
     const tag = toolName.slice(0, slash)
     const action = toolName.slice(slash + 1)
 
@@ -150,20 +165,32 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
     // A 429 before this would implicitly confirm binding existence to
     // unauthorized callers (timing-channel, CWE-200).
     const registry = getRegistry ? getRegistry() : null
-    const bindings = registry ? (registry.get(tag) as LiveBinding[] | undefined) : undefined
+    const bindings = registry
+      ? (registry.get(tag) as LiveBinding[] | undefined)
+      : undefined
 
     if (!bindings || bindings.length === 0) {
       // Fall back to legacy metadata-only path when no live registry is present.
       // This preserves backward compat with the Plan 5.2 stub behavior.
       const meta = byTag.get(tag)
-      if (!meta) return { ok: false, envelope: jsonrpcError(404, `no live instance: ${tag}`) }
+      if (!meta)
+        return {
+          ok: false,
+          envelope: jsonrpcError(404, `no live instance: ${tag}`),
+        }
 
       // AC11: action allowlist check
       if (meta.actions && !(action in meta.actions)) {
-        return { ok: false, envelope: jsonrpcError(404, `no action: ${action}`) }
+        return {
+          ok: false,
+          envelope: jsonrpcError(404, `no action: ${action}`),
+        }
       }
       // Legacy stub response (no live binding).
-      return { ok: false, envelope: jsonrpcError(404, `no live instance: ${tag}`) }
+      return {
+        ok: false,
+        envelope: jsonrpcError(404, `no live instance: ${tag}`),
+      }
     }
 
     // AC11: action allowlist check (against live binding)
@@ -194,7 +221,10 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
       const inActions = meta.actions ? action in meta.actions : false
       const inState = meta.state ? action in meta.state : false
       if (!inActions && !inState) {
-        return { ok: false, envelope: jsonrpcError(404, `no action: ${action}`) }
+        return {
+          ok: false,
+          envelope: jsonrpcError(404, `no action: ${action}`),
+        }
       }
     }
 
@@ -229,7 +259,10 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
     const scopeRequired = binding.scope()
     const rateLimitSpec = binding.rateLimit()
     const jwt = requestContext?.jwt ?? ''
-    const principal = await resolvePrincipal({ jwt: requestContext?.jwt ?? null }, { authPlugin })
+    const principal = await resolvePrincipal(
+      { jwt: requestContext?.jwt ?? null },
+      { authPlugin },
+    )
     const surfacePolicy = surfaceCallPolicy(meta)
     const decision = decideEmission(
       principal,
@@ -247,7 +280,10 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
         // absent-tag refusal so possession of a credential never
         // distinguishes "closed" from "does not exist" (the Amendment 4
         // ordering invariant's information-hiding posture).
-        return { ok: false, envelope: jsonrpcError(404, `no live instance: ${tag}`) }
+        return {
+          ok: false,
+          envelope: jsonrpcError(404, `no live instance: ${tag}`),
+        }
       }
       // 401s carry the discovery pointer (#420); 403s never do.
       return {
@@ -259,7 +295,8 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
         ),
       }
     }
-    const verifiedSub: string | null = principal.class === 'anonymous' ? null : principal.sub
+    const verifiedSub: string | null =
+      principal.class === 'anonymous' ? null : principal.sub
 
     // ── Step 3b: live entitlement (GX Phase 4 #466, 70-spec §4.6) ─────────
     //
@@ -285,7 +322,8 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
         metScopes.push(scopeRequired)
       }
       if (metScopes.length > 0) {
-        const memo = requestContext?.entitlementMemo ?? entitlements.createMemo()
+        const memo =
+          requestContext?.entitlementMemo ?? entitlements.createMemo()
         for (const scope of metScopes) {
           const verdict = await entitlements.check(scope, principal, memo)
           if (verdict === 'denied') {
@@ -358,12 +396,15 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
       if (!rateLimitPlugin.checkRateLimit(rateLimitSpec, rateLimitKey)) {
         return {
           ok: false,
-          envelope: jsonrpcError(429, `RATE_LIMITED: quota exhausted for ${rateLimitKey}`),
+          envelope: jsonrpcError(
+            429,
+            `RATE_LIMITED: quota exhausted for ${rateLimitKey}`,
+          ),
         }
       }
     }
 
-    return { ok: true, binding, tag, action }
+    return { ok: true, binding, tag, action, principal }
   }
 
   return {
@@ -378,7 +419,7 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
     ): Promise<unknown> {
       const gated = await runGate(toolName, requestContext)
       if (!gated.ok) return gated.envelope
-      const { binding, action } = gated
+      const { binding, action, tag, principal } = gated
 
       // ── Step 5: dispatch ──────────────────────────────────────────────────
       // Try callAction first, then getSignal for read-only signals.
@@ -393,6 +434,35 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
       } catch (err: unknown) {
         // If callAction throws "no action: <name>", try getSignal.
         if (err instanceof Error && err.message.startsWith('no action:')) {
+          // ── aihu#871: the data-read capability hook ─────────────────────
+          // Opt-in (ABSENT options.authorizeDataRead ⇒ byte-identical to
+          // today). Runs on the already-resolved, already-verified
+          // `principal` from `runGate` — never re-derived from the request —
+          // and gates the VALUE before it is returned, not after.
+          if (options?.authorizeDataRead) {
+            const verdict = await authorizeCapability(
+              principal,
+              {
+                capability: `${tag}.${action}`,
+                resource: requestContext?.resource,
+              },
+              { resolve: options.authorizeDataRead },
+            )
+            if (!verdict.allow) {
+              return jsonrpcError(
+                verdict.code,
+                verdict.message,
+                verdict.code === 401 ? authDiscoveryUrl : undefined,
+              )
+            }
+            const value = binding.getSignal(action)
+            if (value !== undefined) {
+              return {
+                result: projectCapabilityResult(value, verdict.projection),
+              }
+            }
+            return jsonrpcError(404, `no action: ${action}`)
+          }
           const value = binding.getSignal(action)
           if (value !== undefined) return { result: value }
           return jsonrpcError(404, `no action: ${action}`)
@@ -432,8 +502,14 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
         // `options` is closed over by buildService; reference it (NOT `this`).
         // Fail-closed preserved: without resolveAuth, no ctx is passed, so a
         // scoped binding still yields 401 (AUTH_MISSING / AUTH_REQUIRED).
-        const ctx = options?.resolveAuth ? await options.resolveAuth(req) : undefined
-        const out = (await this.handleToolCall(body.tool, body.params ?? null, ctx)) as {
+        const ctx = options?.resolveAuth
+          ? await options.resolveAuth(req)
+          : undefined
+        const out = (await this.handleToolCall(
+          body.tool,
+          body.params ?? null,
+          ctx,
+        )) as {
           code?: number
           retryAfter?: number
         }
@@ -448,7 +524,10 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
           out.code === 503 && typeof out.retryAfter === 'number'
             ? { ...CT, 'Retry-After': String(out.retryAfter) }
             : CT
-        return new Response(JSON.stringify(out), { status: out.code || 200, headers })
+        return new Response(JSON.stringify(out), {
+          status: out.code || 200,
+          headers,
+        })
       }
     },
   }
@@ -465,7 +544,9 @@ function buildService(metas: AgentMetadata[], options?: AgentServiceOptions): Ag
  * getter from `@aihu/arbor/mount._getComponentInstanceRegistry` to enable
  * live dispatch. Without it, `handleToolCall` returns 404 for all calls.
  */
-export function createAgentService(options?: AgentServiceOptions): AgentService {
+export function createAgentService(
+  options?: AgentServiceOptions,
+): AgentService {
   const metas = options?.manifests ?? []
   return buildService(metas, options)
 }

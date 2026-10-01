@@ -10,6 +10,7 @@
 export type { ActionSchema, InputSchema } from '@aihu/agent'
 
 import type { AgentMetadata } from '@aihu/agent'
+import type { CapabilityGrantResolver } from './capability-gate.ts'
 import type { EntitlementMemo, EntitlementsHandle } from './entitlements.ts'
 
 // ─── v0.3.0 — LiveBinding (RFC §2.2) ─────────────────────────────────────────
@@ -79,6 +80,15 @@ export interface RequestContext {
    * input — only a deduplication scope.
    */
   readonly entitlementMemo?: EntitlementMemo
+  /**
+   * aihu#871: the resource identifier for the capability-authorization hook
+   * (`AgentServiceOptions.authorizeDataRead`) to check THIS call against —
+   * a row, a record id, a tenant scope, whatever the host's resolver
+   * interprets. Host-populated; opaque to this package. Absent when the
+   * capability itself (not a specific resource) is what's being gated, or
+   * when the host has not wired the hook in at all.
+   */
+  readonly resource?: unknown
 }
 
 // ─── v0.3.0 — auth/scope plugin ──────────────────────────────────────────────
@@ -233,6 +243,19 @@ export interface AgentServiceOptions {
    * posture as `resolveAuth`: no ambient state, trivially testable).
    */
   entitlements?: EntitlementsHandle
+  /**
+   * aihu#871: the capability-authorization resolver for data reads — the
+   * host's per-resource "is THIS row visible to THIS actor" check. When
+   * present, `handleToolCall`'s data-read path (a member with no matching
+   * `actions` entry, served via `getSignal`) calls `authorizeCapability`
+   * (`capability-gate.ts`) with the already-verified principal before the
+   * signal's value reaches the response; a deny/unavailable verdict refuses
+   * the call instead of dispatching, and an allow carrying a `projection`
+   * strips every other field from the result server-side. ABSENT ⇒
+   * byte-identical to today's behavior (the same injected-dependency posture
+   * as `resolveAuth`/`entitlements`: opt-in, no ambient state).
+   */
+  authorizeDataRead?: CapabilityGrantResolver
 }
 
 /**
@@ -272,7 +295,11 @@ export interface AgentService {
    * path to gate on the server while delegating execution to the visible
    * browser instance.
    */
-  authorize(toolName: string, params: unknown, requestContext?: RequestContext): Promise<unknown>
+  authorize(
+    toolName: string,
+    params: unknown,
+    requestContext?: RequestContext,
+  ): Promise<unknown>
   /**
    * Returns a fetch-compatible middleware function.
    * Handles `POST /__aihu/tools/call` with `{ tool, params }` JSON body.
